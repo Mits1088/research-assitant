@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "last30free"
+version = "0.1.0"
+description = "Free-source last 30 days research engine for Reddit, HN, YouTube, and X"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "Your Name" }
+]
+dependencies = [
+  "httpx",
+  "pydantic",
+  "python-dateutil",
+  "rich",
+  "orjson",
+  "yt-dlp",
+  "twscrape",
+  "playwright",
+  "curl_cffi",
+  "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+  "ruff",
+]
+
+[project.scripts]
+last30free = "last30free.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

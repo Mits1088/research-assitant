@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Test + tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local secrets
+.env
+.env.local
+
+# Project runtime data
+data/
+outputs/
+cache/
+tmp/
+*.sqlite
+*.db
+*.jsonl
+
+# yt-dlp / transcript leftovers
+*.vtt
+*.srt
+*.ass
+*.lrc
+*.part
+*.info.json
+
+# Logs
+*.log
