@@ -34,6 +34,7 @@ from .run_index import (
     runs_for_topic,
     update_run_index,
 )
+from .generator import GeneratorError, generate, list_formats
 from .synthesis import synthesize
 from .watchlist import (
     build_watchlist_runner_payloads,
@@ -2027,6 +2028,102 @@ def handle_watchlist_command(argv: Sequence[str], settings: Settings) -> int:
     return 1
 
 
+def build_generate_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="last30free generate",
+        description="Generate social/video content from saved research using Claude.",
+    )
+    parser.add_argument(
+        "--format",
+        required=True,
+        choices=list_formats(),
+        help="Content format to generate",
+    )
+
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument("--run-id", dest="run_id", help="Run ID of a saved research run")
+    source_group.add_argument("--latest", dest="latest_topic", metavar="TOPIC", nargs="?", const="", help="Use the latest saved run (optionally for a specific topic)")
+
+    parser.add_argument("--save", action="store_true", help="Save generated content to the run directory")
+    return parser
+
+
+def handle_generate_command(argv: Sequence[str], settings: Settings) -> int:
+    parser = build_generate_parser()
+    args = parser.parse_args(list(argv))
+    console = Console()
+
+    # Resolve manifest
+    manifest: dict[str, Any] | None = None
+    if args.run_id:
+        manifest = resolve_saved_run(settings.app.output_dir, args.run_id)
+        if manifest is None:
+            console.print(f"[bold red]No saved run found for run-id:[/bold red] {args.run_id}")
+            return 1
+    else:
+        topic_ref = args.latest_topic or ""
+        if topic_ref:
+            entry = latest_run_for_topic(settings.app.output_dir, topic_ref)
+        else:
+            entries = latest_runs_by_topic(settings.app.output_dir, limit=1)
+            entry = entries[0] if entries else None
+        if entry is None:
+            msg = f"No saved run found for topic: {topic_ref}" if topic_ref else "No saved runs found. Run a query with --save first."
+            console.print(f"[bold red]{msg}[/bold red]")
+            return 1
+        manifest = resolve_saved_run(settings.app.output_dir, str(entry.get("run_id", "")))
+        if manifest is None:
+            console.print("[bold red]Could not load manifest for the latest run.[/bold red]")
+            return 1
+
+    # Load payload
+    files = manifest.get("files", {})
+    payload_path = Path(str(files.get("payload_path", "") or ""))
+    if not payload_path.exists():
+        console.print(f"[bold red]Payload file not found:[/bold red] {payload_path}")
+        return 1
+
+    try:
+        payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        console.print(f"[bold red]Failed to read payload:[/bold red] {exc}")
+        return 1
+
+    topic = str(manifest.get("topic", "") or "")
+    run_id = str(manifest.get("run_id", "") or "")
+
+    console.print()
+    console.print(
+        Panel.fit(
+            f"Topic: {topic}\nRun ID: {run_id}\nFormat: {args.format}\nModel: claude-opus-4-6",
+            title="Generating content",
+        )
+    )
+    console.print()
+
+    save_path: Path | None = None
+    if args.save:
+        run_dir = Path(str(files.get("run_dir", "") or ""))
+        if run_dir:
+            save_path = run_dir / f"generated_{args.format.replace('-', '_')}.md"
+
+    try:
+        generate(
+            payload=payload,
+            format_name=args.format,
+            save_path=save_path,
+        )
+    except GeneratorError as exc:
+        console.print(f"\n[bold red]Generation failed:[/bold red] {exc}")
+        return 1
+
+    if save_path:
+        console.print()
+        console.print(f"[green]Saved to:[/green] {save_path}")
+
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     argv_list = list(argv) if argv is not None else sys.argv[1:]
 
@@ -2056,6 +2153,16 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if argv_list and argv_list[0] == "watchlist":
         return handle_watchlist_command(argv_list[1:], settings)
+
+    if argv_list and argv_list[0] == "generate":
+        return handle_generate_command(argv_list[1:], settings)
+
+    if argv_list and argv_list[0] == "dashboard":
+        import subprocess
+        dashboard_path = Path(__file__).parent / "dashboard.py"
+        extra = argv_list[1:]  # pass through e.g. --server.port 8502
+        cmd = [sys.executable, "-m", "streamlit", "run", str(dashboard_path)] + list(extra)
+        raise SystemExit(subprocess.call(cmd))
 
     parser = build_parser()
     args = parser.parse_args(argv_list)

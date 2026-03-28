@@ -23,6 +23,8 @@ dependencies = [
   "playwright",
   "curl_cffi",
   "python-dotenv",
+  "claude-agent-sdk",
+  "streamlit>=1.28",
 ]
 
 [project.optional-dependencies]
