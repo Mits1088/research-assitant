@@ -24,7 +24,7 @@ st.set_page_config(
 
 # ── imports from last30free ───────────────────────────────────────────────────
 
-from last30free.cli import build_payload_for_query, save_payload_artifacts
+from last30free.orchestrator import build_payload_for_query, save_payload_artifacts
 from last30free.config import load_settings
 from last30free.generator import GeneratorError, list_formats, stream_generate
 from last30free.run_index import (
