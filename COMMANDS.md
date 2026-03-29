@@ -74,6 +74,18 @@ python -m last30free "AI coding tools" --days 90    # last 90 days
 python -m last30free "AI coding tools" --filter cursor --filter vscode
 ```
 
+### Enrich results with full article text (Jina Reader)
+```bash
+python -m last30free "AI coding tools" --enrich
+python -m last30free "AI coding tools" --enrich --save        # also saves evidence.json + screenshots
+python -m last30free "AI coding tools" --enrich --enrich-limit 5   # enrich only top 5 items
+```
+Fetches the full article markdown for top HN, Reddit, and X items using the free
+`r.jina.ai` API. Adds extracted tool mentions and key claims to the output.
+When used with `--save`, also captures screenshots and saves `evidence.json` and
+`asset_candidates.json` to the run directory.
+Optional: set `JINA_API_KEY` in `.env` for higher rate limits.
+
 ### Skip intent parsing (pass query verbatim)
 ```bash
 python -m last30free "prompts for Midjourney" --literal

@@ -57,13 +57,32 @@ def write_run_outputs(
     payload_path.write_text(payload_json, encoding="utf-8")
     manifest_path.write_text(manifest_json, encoding="utf-8")
 
-    return {
+    artifacts: dict[str, str] = {
         "run_dir": str(run_dir),
         "report_path": str(report_path),
         "merged_items_path": str(merged_path),
         "payload_path": str(payload_path),
         "manifest_path": str(manifest_path),
     }
+
+    # Save enrichment artifacts if present
+    evidence_items = payload.get("evidence", {}).get("items", [])
+    if evidence_items:
+        evidence_path = run_dir / "evidence.json"
+        evidence_path.write_text(
+            json.dumps(evidence_items, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        artifacts["evidence_path"] = str(evidence_path)
+
+    asset_items = payload.get("asset_candidates", {}).get("items", [])
+    if asset_items:
+        assets_path = run_dir / "asset_candidates.json"
+        assets_path.write_text(
+            json.dumps(asset_items, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        artifacts["asset_candidates_path"] = str(assets_path)
+
+    return artifacts
 
 
 def build_manifest(

@@ -46,6 +46,7 @@ def _build_research_context(payload: dict[str, Any]) -> str:
     synthesis = payload.get("synthesis", {})
     merged = payload.get("merged", {})
     runtime = payload.get("runtime", {})
+    evidence_items = payload.get("evidence", {}).get("items", [])
 
     lines: list[str] = []
 
@@ -118,6 +119,28 @@ def _build_research_context(payload: dict[str, Any]) -> str:
                     f'Quote: "{q.get("text", "")[:300]}" — {q.get("author", "")}'
                 )
 
+            lines.append("")
+
+    if evidence_items:
+        lines.append("## Article evidence (Jina Reader enrichment)")
+        for ev in evidence_items[:10]:
+            if ev.get("enrich_status") != "ok":
+                continue
+            url = ev.get("url", "")
+            tools = ev.get("extracted_tools", [])
+            claims = ev.get("extracted_claims", [])
+            markdown = str(ev.get("markdown") or "").strip()
+
+            lines.append(f"### Source: {url}")
+            if tools:
+                lines.append(f"Tools mentioned: {', '.join(tools[:8])}")
+            if claims:
+                lines.append("Key claims:")
+                for claim in claims[:3]:
+                    lines.append(f"  - {claim}")
+            if markdown:
+                snippet = markdown[:600] + ("..." if len(markdown) > 600 else "")
+                lines.append(f"Content snippet:\n{snippet}")
             lines.append("")
 
     return "\n".join(lines)

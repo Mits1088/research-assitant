@@ -34,6 +34,7 @@ class AppSettings(BaseModel):
     default_days: int = 30
     max_items_per_source: int = 25
     user_agent: str = "last30free/0.1.0"
+    jina_api_key: str = ""  # Optional — set JINA_API_KEY for higher Jina Reader rate limits
 
     def ensure_directories(self) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -132,6 +133,7 @@ def load_settings() -> Settings:
             default_days=_get_int("LAST30_DEFAULT_DAYS", 30),
             max_items_per_source=_get_int("LAST30_MAX_ITEMS_PER_SOURCE", 25),
             user_agent=os.getenv("LAST30_USER_AGENT", "last30free/0.1.0"),
+            jina_api_key=os.getenv("JINA_API_KEY", ""),
         ),
         reddit=RedditSettings(
             base_url=os.getenv("REDDIT_BASE_URL", "https://www.reddit.com"),

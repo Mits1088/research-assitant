@@ -37,6 +37,19 @@ def build_parser() -> argparse.ArgumentParser:
     depth_group.add_argument("--quick", action="store_true", help="Use a lighter/faster runtime profile")
     depth_group.add_argument("--deep", action="store_true", help="Use a deeper/more comprehensive runtime profile")
 
+    parser.add_argument(
+        "--enrich",
+        action="store_true",
+        help="Fetch full article text via Jina Reader (r.jina.ai) for top HN/Reddit/X items",
+    )
+    parser.add_argument(
+        "--enrich-limit",
+        type=int,
+        default=10,
+        dest="enrich_limit",
+        help="Max number of items to enrich (default: 10)",
+    )
+
     return parser
 
 

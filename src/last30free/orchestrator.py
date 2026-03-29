@@ -153,6 +153,8 @@ def build_payload_for_query(
     quick: bool = False,
     deep: bool = False,
     literal: bool = False,
+    enrich: bool = False,
+    enrich_limit: int = 10,
 ) -> dict[str, Any]:
     intent = parse_user_intent(raw_query, tool_override=tool, literal=literal)
     selected_sources, skipped_sources = resolve_sources(settings, sources)
@@ -199,6 +201,25 @@ def build_payload_for_query(
     any_error = any(result["status"] == "error" for result in results.values())
     status = "partial" if any_error else "ok"
 
+    # Optional enrichment pass — text only (screenshots added later in save_payload_artifacts)
+    evidence_payload: dict[str, Any] = {"count": 0, "items": []}
+    asset_candidates_payload: dict[str, Any] = {"count": 0, "items": []}
+    if enrich and merged_items:
+        from .enrichment import enrich_items
+        evidence_list, asset_candidates = enrich_items(
+            merged_items,
+            limit=enrich_limit,
+            jina_api_key=settings.app.jina_api_key,
+        )
+        evidence_payload = {
+            "count": len(evidence_list),
+            "items": [e.model_dump(mode="json") for e in evidence_list],
+        }
+        asset_candidates_payload = {
+            "count": len(asset_candidates),
+            "items": [a.model_dump(mode="json") for a in asset_candidates],
+        }
+
     synthesis = synthesize(merged_items, intent=intent, results=results)
 
     return {
@@ -219,12 +240,16 @@ def build_payload_for_query(
             "instagram_enabled": settings.instagram.enable,
             "instagram_authenticated": settings.instagram.authenticated,
             "tiktok_enabled": settings.tiktok.enable,
+            "enrich": enrich,
+            "enrich_limit": enrich_limit,
         },
         "results": results,
         "merged": {
             "count": len(merged_serialized),
             "items": merged_serialized,
         },
+        "evidence": evidence_payload,
+        "asset_candidates": asset_candidates_payload,
         "synthesis": synthesis,
     }
 
@@ -242,6 +267,8 @@ def build_payload(args: argparse.Namespace, settings: Settings) -> dict[str, Any
         quick=args.quick,
         deep=args.deep,
         literal=getattr(args, "literal", False),
+        enrich=getattr(args, "enrich", False),
+        enrich_limit=getattr(args, "enrich_limit", 10),
     )
 
 
@@ -253,6 +280,20 @@ def save_payload_artifacts(
     argv_list: list[str],
 ) -> dict[str, Any]:
     run_dir = create_run_dir(settings.app.output_dir, payload["intent"]["topic"])
+
+    # Screenshot enrichment — runs after run_dir is created so PNGs have a home
+    if payload.get("runtime", {}).get("enrich"):
+        evidence_items = payload.get("evidence", {}).get("items", [])
+        if evidence_items:
+            from .enrichment import enrich_add_screenshots
+            enrich_add_screenshots(
+                evidence_items,
+                run_dir=run_dir,
+                screenshot_limit=5,
+                jina_api_key=settings.app.jina_api_key,
+            )
+            payload["evidence"]["items"] = evidence_items
+
     artifacts = write_run_outputs(
         run_dir=run_dir,
         payload=payload,

@@ -74,3 +74,23 @@ class ResearchRun(BaseModel):
     days: int = 30
     sources: list[SourceName] = Field(default_factory=list)
     items: list[ResearchItem] = Field(default_factory=list)
+
+
+class Evidence(BaseModel):
+    source_id: str
+    url: str
+    markdown: str = ""
+    extracted_tools: list[str] = Field(default_factory=list)
+    extracted_claims: list[str] = Field(default_factory=list)
+    screenshot_path: str = ""
+    enrich_status: str = "ok"
+    enrich_error: str | None = None
+
+
+class AssetCandidate(BaseModel):
+    source_id: str
+    url: str
+    title: str
+    score: float = 0.0
+    screenshot_path: str = ""
+    pull_quotes: list[str] = Field(default_factory=list)
