@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import argparse
 import json
-import re
 import sys
 from pathlib import Path
 from typing import Any, Sequence
@@ -12,9 +10,8 @@ from rich.console import Console
 from .alerts import build_alert_report_from_manifests
 from .comparison import compare_payloads, load_payload_from_manifest, render_comparison_markdown
 from .config import Settings, load_settings
-from .intent import normalize_spaces, parse_user_intent
-from .models import IntentParse, QueryType, ResearchItem
-from .orchestrator import build_payload, build_payload_for_query, run_watchlist_entries, save_payload_artifacts
+from .intent import normalize_spaces
+from .orchestrator import build_payload, run_watchlist_entries, save_payload_artifacts
 from .parsers import (
     build_alerts_parser,
     build_compare_parser,
@@ -57,9 +54,8 @@ from .run_index import (
     read_manifest,
     resolve_saved_run,
     runs_for_topic,
-    update_run_index,
 )
-from .generator import GeneratorError, generate, list_formats
+from .generator import GeneratorError, generate
 from .watchlist import (
     build_watchlist_runner_payloads,
     init_watchlist,
