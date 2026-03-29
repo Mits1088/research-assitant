@@ -25,6 +25,10 @@ class SourceName(str, Enum):
     FACEBOOK = "facebook"
 
 
+ALL_SOURCES: set[str] = {s.value for s in SourceName}
+SOURCE_ORDER: list[str] = [s.value for s in SourceName]
+
+
 class IntentParse(BaseModel):
     raw_query: str
     topic: str

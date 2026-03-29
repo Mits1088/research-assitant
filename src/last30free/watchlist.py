@@ -6,9 +6,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from last30free.models import ALL_SOURCES
 from last30free.reporting import slugify
 
-VALID_SOURCES = {"reddit", "hn", "youtube", "x"}
+VALID_SOURCES = ALL_SOURCES
 VALID_DEPTHS = {"quick", "balanced", "deep"}
 
 

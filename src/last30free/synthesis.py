@@ -4,7 +4,7 @@ import re
 from collections import defaultdict
 from typing import Any
 
-from last30free.models import IntentParse, ResearchItem
+from last30free.models import SOURCE_ORDER, IntentParse, ResearchItem
 
 STOPWORDS = {
     "about",
@@ -60,7 +60,6 @@ STOPWORDS = {
     "your",
 }
 
-SOURCE_ORDER = ["reddit", "hn", "youtube", "x", "instagram", "tiktok"]
 
 
 def synthesize(
@@ -344,6 +343,16 @@ def _build_source_stats(items: list[ResearchItem]) -> list[dict[str, Any]]:
             "label_3": "shares",
             "total_3": 0,
         },
+        "facebook": {
+            "source": "facebook",
+            "count": 0,
+            "label_1": "likes",
+            "total_1": 0,
+            "label_2": "comments",
+            "total_2": 0,
+            "label_3": "reposts",
+            "total_3": 0,
+        },
     }
 
     for item in items:
@@ -372,6 +381,10 @@ def _build_source_stats(items: list[ResearchItem]) -> list[dict[str, Any]]:
         elif source == "tiktok":
             stats[source]["total_1"] += item.metrics.views
             stats[source]["total_2"] += item.metrics.likes
+            stats[source]["total_3"] += item.metrics.reposts
+        elif source == "facebook":
+            stats[source]["total_1"] += item.metrics.likes
+            stats[source]["total_2"] += item.metrics.comments
             stats[source]["total_3"] += item.metrics.reposts
 
     ordered = []

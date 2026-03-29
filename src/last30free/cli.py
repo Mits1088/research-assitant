@@ -16,7 +16,7 @@ from .adapters import AdapterError, FacebookAdapter, HNAdapter, InstagramAdapter
 from .alerts import build_alert_report_from_manifests
 from .comparison import compare_payloads, load_payload_from_manifest, render_comparison_markdown
 from .config import Settings, load_settings
-from .models import IntentParse, QueryType, ResearchItem
+from .models import ALL_SOURCES, IntentParse, QueryType, ResearchItem
 from .notification_store import (
     list_notification_snapshots,
     notification_index_path,
@@ -60,7 +60,7 @@ PROMPTING_HINTS = (
     "thumbnails",
 )
 
-IMPLEMENTED_SOURCES = {"reddit", "hn", "youtube", "x", "instagram", "tiktok", "facebook"}
+IMPLEMENTED_SOURCES = ALL_SOURCES
 
 
 def normalize_spaces(text: str) -> str:
