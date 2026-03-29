@@ -238,17 +238,46 @@ class TikTokAdapter(BaseAdapter):
 
     def _to_item(self, raw: dict[str, Any], created_at: datetime, hashtag: str) -> ResearchItem:
         source_id = str(raw.get("id", "")).strip()
-        author_obj = raw.get("author", {})
+        author_obj = raw.get("author", {}) or {}
         author = str(author_obj.get("uniqueId", "")).strip() or str(author_obj.get("nickname", "")).strip()
+        author_full_name = str(author_obj.get("nickname", "") or "").strip()
+        author_verified = bool(author_obj.get("verified", False))
+        author_stats = author_obj.get("stats", {}) or {}
+        author_followers = int(author_stats.get("followerCount", 0) or 0)
 
         desc = str(raw.get("desc", "")).strip()
         title = desc[:100] if len(desc) > 100 else desc
 
-        stats = raw.get("stats", {})
+        stats = raw.get("stats", {}) or {}
         likes = int(stats.get("diggCount", 0) or 0)
         comments = int(stats.get("commentCount", 0) or 0)
         shares = int(stats.get("shareCount", 0) or 0)
         views = int(stats.get("playCount", 0) or 0)
+
+        # Video metadata
+        video_obj = raw.get("video", {}) or {}
+        video_duration = int(video_obj.get("duration", 0) or 0)
+
+        # Music / sound
+        music_obj = raw.get("music", {}) or {}
+        music_title = str(music_obj.get("title", "") or "").strip()
+        music_author = str(music_obj.get("authorName", "") or "").strip()
+
+        # Tags: search hashtag + challenges array + hashtags parsed from description
+        challenge_tags = [
+            str(c.get("title", "") or "").strip().lower()
+            for c in (raw.get("challenges", []) or [])
+            if c.get("title")
+        ]
+        desc_hashtags = re.findall(r"#(\w+)", desc)
+        seen: set[str] = set()
+        all_tag_values: list[str] = []
+        for t in ([hashtag] if hashtag else []) + challenge_tags + desc_hashtags:
+            tl = t.lower()
+            if tl and tl not in seen:
+                all_tag_values.append(tl)
+                seen.add(tl)
+        tags_list = [f"#{t}" for t in all_tag_values[:20]]
 
         url = (
             f"https://www.tiktok.com/@{author}/video/{source_id}"
@@ -270,8 +299,18 @@ class TikTokAdapter(BaseAdapter):
             score=score,
             metrics=metrics,
             quotes=[],
-            tags=[f"#{hashtag}"] if hashtag else [],
-            raw={"hashtag": hashtag, "username": author, "shares": shares},
+            tags=tags_list,
+            raw={
+                "hashtag": hashtag,
+                "username": author,
+                "full_name": author_full_name,
+                "verified": author_verified,
+                "followers": author_followers,
+                "shares": shares,
+                "video_duration_secs": video_duration,
+                "music_title": music_title,
+                "music_author": music_author,
+            },
         )
 
     def _score_item(

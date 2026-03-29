@@ -271,6 +271,9 @@ class FacebookAdapter(BaseAdapter):
 
         hashtags = re.findall(r"#(\w+)", text)
 
+        author_url = str(raw.get("author_url", "") or "").strip()
+        attached_link = str(raw.get("attached_link", "") or "").strip()
+
         return ResearchItem(
             source=SourceName.FACEBOOK,
             source_id=source_id,
@@ -285,7 +288,9 @@ class FacebookAdapter(BaseAdapter):
             tags=[f"#{h}" for h in hashtags],
             raw={
                 "author": author,
+                "author_url": author_url,
                 "topic": topic,
+                "attached_link": attached_link,  # external article URL if it's a link-share post
             },
         )
 
@@ -403,12 +408,21 @@ def _normalise_story(story: dict[str, Any]) -> dict[str, Any] | None:
     shares = _safe_int(_dig(_ufi, "share_count", "count"))
     comments = _safe_int(_dig(_ufi, "comment_rendering_instance", "comments", "total_count"))
 
+    # Check for a linked article (link-share posts attach an external URL)
+    attached_link = str(
+        _dig(story, "comet_sections", "content", "story", "attachments", 0, "styles", "attachment", "url") or
+        _dig(story, "attachments", 0, "url") or
+        ""
+    ).strip()
+
     return {
         "id": story_id,
         "created_time": creation_time,
         "text": text,
         "author": author_name,
+        "author_url": author_url,
         "url": url,
+        "attached_link": attached_link,
         "likes": reactions,
         "comments": comments,
         "shares": shares,

@@ -319,6 +319,9 @@ class InstagramAdapter(BaseAdapter):
         except (TypeError, ValueError):
             return None
 
+    # Maps media_type integer from Instagram API to a human-readable label
+    _MEDIA_TYPE = {1: "photo", 2: "video", 8: "carousel"}
+
     def _to_item(self, media: dict[str, Any], created_at: datetime, hashtag: str) -> ResearchItem:
         source_id = str(media.get("id") or media.get("pk", "")).strip()
         shortcode = str(media.get("code") or media.get("shortcode", "")).strip()
@@ -328,13 +331,28 @@ class InstagramAdapter(BaseAdapter):
             else f"https://www.instagram.com/explore/tags/{hashtag}/"
         )
 
-        user = media.get("user", {})
+        user = media.get("user", {}) or {}
         author = str(user.get("username", "")).strip() or str(user.get("pk", "")).strip()
+        author_full_name = str(user.get("full_name", "") or "").strip()
 
         caption_raw = media.get("caption") or {}
         caption_text = str(caption_raw.get("text", "")).strip() if isinstance(caption_raw, dict) else ""
-
         title = caption_text.splitlines()[0][:100] if caption_text else ""
+
+        # Media metadata
+        media_type_code = int(media.get("media_type", 0) or 0)
+        media_type = self._MEDIA_TYPE.get(media_type_code, "post")
+        video_duration = float(media.get("video_duration", 0) or media.get("video_length", 0) or 0)
+
+        # Tags: search hashtag + all #hashtags found in caption
+        caption_hashtags = re.findall(r"#(\w+)", caption_text)
+        seen: set[str] = set()
+        all_tag_values: list[str] = []
+        for t in ([hashtag] if hashtag else []) + [h.lower() for h in caption_hashtags]:
+            if t and t not in seen:
+                all_tag_values.append(t)
+                seen.add(t)
+        tags_list = [f"#{t}" for t in all_tag_values[:20]]
 
         likes = int(media.get("like_count", 0) or 0)
         comments = int(media.get("comment_count", 0) or 0)
@@ -354,11 +372,14 @@ class InstagramAdapter(BaseAdapter):
             score=score,
             metrics=metrics,
             quotes=[],
-            tags=[f"#{hashtag}"] if hashtag else [],
+            tags=tags_list,
             raw={
                 "shortcode": shortcode,
                 "hashtag": hashtag,
                 "username": author,
+                "full_name": author_full_name,
+                "media_type": media_type,
+                "video_duration_secs": round(video_duration, 1) if video_duration else 0,
             },
         )
 

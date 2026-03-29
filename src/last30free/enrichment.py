@@ -20,8 +20,13 @@ import httpx
 
 from .models import AssetCandidate, Evidence, ResearchItem
 
-# Sources where URL → article enrichment is useful
-ENRICH_SOURCES = {"hn", "reddit", "x"}
+# Sources where URL enrichment via Jina Reader is useful.
+# HN: item.url is the linked external article (or HN discussion for Ask/Show HN)
+# Reddit: reddit.com thread page — Jina reads it and returns post + top comments
+# X: post page — Jina reads tweet text and thread context
+# TikTok: tiktok.com/@user/video/id — publicly accessible, Jina reads description + stats
+# Instagram / Facebook: login-walled — Jina returns login page, not useful
+ENRICH_SOURCES = {"hn", "reddit", "x", "tiktok"}
 
 JINA_BASE = "https://r.jina.ai"
 _MAX_WORKERS = 5
