@@ -114,7 +114,7 @@ def test_watchlist_init_resolve_and_batch_run(monkeypatch, tmp_path) -> None:
             },
         }
 
-    monkeypatch.setattr("last30free.cli.build_payload_for_query", fake_build_payload_for_query)
+    monkeypatch.setattr("last30free.orchestrator.build_payload_for_query", fake_build_payload_for_query)
 
     settings = load_settings()
     results = run_watchlist_entries(settings, selected, output_dir=output_dir)

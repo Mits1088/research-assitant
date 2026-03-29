@@ -1,4 +1,4 @@
-from last30free.cli import parse_user_intent
+from last30free.intent import parse_user_intent
 from last30free.config import load_settings
 from last30free.models import QueryType
 

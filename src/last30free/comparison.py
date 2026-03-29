@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from last30free.models import ALL_SOURCES
+
 
 def load_payload_from_manifest(manifest: dict[str, Any]) -> dict[str, Any] | None:
     files = manifest.get("files", {})
@@ -235,7 +237,7 @@ def _compare_source_counts(
     earlier_items: list[dict[str, Any]],
     later_items: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    sources = {"reddit", "hn", "youtube", "x"}
+    sources = ALL_SOURCES
     earlier_counts = {source: 0 for source in sources}
     later_counts = {source: 0 for source in sources}
 
