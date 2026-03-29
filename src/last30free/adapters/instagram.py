@@ -19,6 +19,15 @@ _MOBILE_UA = (
     "Version/17.0 Mobile/15E148 Safari/604.1"
 )
 
+_WEB_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
+
+# Instagram web app ID — stable public value used by instagram.com
+_IG_APP_ID = "936619743392459"
+
 
 def _graphql_node_to_media(node: dict[str, Any]) -> dict[str, Any]:
     """Normalise a GraphQL hashtag edge node into our flat media dict."""
@@ -70,8 +79,16 @@ class InstagramAdapter(BaseAdapter):
         cutoff = self.cutoff_datetime(days)
 
         try:
-            fetcher = self._page_fetcher or self._playwright_fetch
-            raw_medias = asyncio.run(fetcher(hashtag, effective_limit))
+            if self._page_fetcher:
+                raw_medias = asyncio.run(self._page_fetcher(hashtag, effective_limit))
+            elif self.settings.instagram.authenticated:
+                # Primary: curl_cffi direct API — bypasses bot detection via real browser TLS fingerprint
+                raw_medias = self._curl_fetch(hashtag, effective_limit)
+                if not raw_medias:
+                    # Fallback: Playwright with stealth
+                    raw_medias = asyncio.run(self._playwright_fetch(hashtag, effective_limit))
+            else:
+                raw_medias = asyncio.run(self._playwright_fetch(hashtag, effective_limit))
         except AdapterError:
             raise
         except RuntimeError as exc:
@@ -101,7 +118,99 @@ class InstagramAdapter(BaseAdapter):
 
         return self.sort_items(items)
 
+    def _curl_fetch(self, hashtag: str, limit: int) -> list[dict[str, Any]]:
+        """
+        Fetch hashtag posts via Instagram's web API using curl_cffi.
+        curl_cffi impersonates a real Chrome TLS fingerprint, bypassing
+        the bot detection that trips up Playwright's Chromium.
+        """
+        try:
+            from curl_cffi.requests import Session as CurlSession
+        except ImportError as exc:
+            raise AdapterError(
+                "curl_cffi is required for Instagram: pip install curl_cffi"
+            ) from exc
+
+        from urllib.parse import unquote
+        session_id = unquote(self.settings.instagram.session_id.strip())
+
+        raw_medias: list[dict[str, Any]] = []
+
+        try:
+            with CurlSession(impersonate="chrome124") as session:
+                # Step 1: hit the homepage to pick up csrftoken and mid cookies
+                homepage = session.get(
+                    "https://www.instagram.com/",
+                    headers={
+                        "User-Agent": _WEB_UA,
+                        "Accept-Language": "en-US,en;q=0.9",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    },
+                    cookies={"sessionid": session_id},
+                    timeout=15,
+                )
+                csrf_token = homepage.cookies.get("csrftoken", "")
+
+                # Step 2: fetch hashtag sections from Instagram's web API
+                max_id = ""
+                page = 0
+                while len(raw_medias) < limit and page < 5:
+                    params: dict[str, Any] = {
+                        "tab": "recent",
+                        "page": page + 1,
+                        "max_id": max_id,
+                        "next_media_ids": "[]",
+                        "include_persistent": "false",
+                        "surface": "grid",
+                    }
+                    resp = session.get(
+                        f"https://www.instagram.com/api/v1/tags/{hashtag}/sections/",
+                        params=params,
+                        headers={
+                            "User-Agent": _WEB_UA,
+                            "X-IG-App-ID": _IG_APP_ID,
+                            "X-CSRFToken": csrf_token,
+                            "X-Requested-With": "XMLHttpRequest",
+                            "Referer": f"https://www.instagram.com/explore/tags/{hashtag}/",
+                            "Accept": "*/*",
+                            "Accept-Language": "en-US,en;q=0.9",
+                        },
+                        cookies={
+                            "sessionid": session_id,
+                            "csrftoken": csrf_token,
+                        },
+                        timeout=20,
+                    )
+
+                    if resp.status_code != 200:
+                        break
+
+                    data = resp.json()
+                    sections = data.get("sections", [])
+                    if not sections:
+                        break
+
+                    for section in sections:
+                        for wrapper in section.get("layout_content", {}).get("medias", []):
+                            media = wrapper.get("media", wrapper)
+                            if isinstance(media, dict) and (media.get("pk") or media.get("id")):
+                                raw_medias.append(media)
+
+                    max_id = str(data.get("next_max_id", "") or "")
+                    if not max_id or not data.get("more_available", False):
+                        break
+
+                    page += 1
+
+        except AdapterError:
+            raise
+        except Exception as exc:
+            raise AdapterError(f"Instagram curl_cffi fetch failed: {exc}") from exc
+
+        return raw_medias
+
     async def _playwright_fetch(self, hashtag: str, limit: int) -> list[dict[str, Any]]:
+        """Playwright fallback with stealth scripts to reduce automation detection."""
         try:
             from playwright.async_api import async_playwright
         except ImportError as exc:
@@ -123,7 +232,22 @@ class InstagramAdapter(BaseAdapter):
                 locale="en-US",
                 extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
             )
-            # Inject session cookie if available so Instagram serves content instead of the login wall
+
+            # Stealth: hide navigator.webdriver and other automation signals
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+                window.chrome = {runtime: {}, loadTimes: function(){}, csi: function(){}, app: {}};
+                const originalQuery = window.navigator.permissions.query;
+                window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications' ?
+                    Promise.resolve({state: Notification.permission}) :
+                    originalQuery(parameters)
+                );
+            """)
+
+            # Inject session cookie if available
             if self.settings.instagram.authenticated:
                 from urllib.parse import unquote
                 session_id = unquote(self.settings.instagram.session_id.strip())
@@ -137,15 +261,23 @@ class InstagramAdapter(BaseAdapter):
                         "secure": True,
                     }
                 ])
+
             page = await context.new_page()
 
             async def handle_response(response: Any) -> None:
                 url = response.url
-                if "fbsearch" in url or "top_serp" in url:
+                if "fbsearch" in url or "top_serp" in url or "/sections/" in url:
                     try:
                         import json as _json
                         body = await response.body()
                         data = _json.loads(body)
+                        # /sections/ response format
+                        for section in data.get("sections", []):
+                            for wrapper in section.get("layout_content", {}).get("medias", []):
+                                media = wrapper.get("media", wrapper)
+                                if isinstance(media, dict) and media.get("pk"):
+                                    raw_medias.append(media)
+                        # fbsearch / top_serp format
                         for section in data.get("media_grid", {}).get("sections", []):
                             for wrapper in section.get("layout_content", {}).get("medias", []):
                                 media = wrapper.get("media", wrapper)
@@ -158,7 +290,7 @@ class InstagramAdapter(BaseAdapter):
 
             try:
                 await page.goto(
-                    f"https://www.instagram.com/explore/search/keyword/?q=%23{hashtag}",
+                    f"https://www.instagram.com/explore/tags/{hashtag}/",
                     wait_until="domcontentloaded",
                     timeout=self.timeout_seconds * 1000,
                 )

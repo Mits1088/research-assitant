@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from rich.console import Console
+from rich.panel import Panel
 
 from .alerts import build_alert_report_from_manifests
 from .comparison import compare_payloads, load_payload_from_manifest, render_comparison_markdown
