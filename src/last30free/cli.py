@@ -16,6 +16,7 @@ from .orchestrator import build_payload, run_watchlist_entries, save_payload_art
 from .parsers import (
     build_alerts_parser,
     build_compare_parser,
+    build_enrich_parser,
     build_generate_parser,
     build_latest_parser,
     build_notify_history_parser,
@@ -589,6 +590,137 @@ def handle_watchlist_command(argv: Sequence[str], settings: Settings) -> int:
 
 
 
+def _parse_item_selection(s: str, max_n: int) -> list[int]:
+    """Parse user input like '1,3,5' or '1-5' or '1,3-5,8' into 1-based indices."""
+    result: list[int] = []
+    for part in s.split(","):
+        part = part.strip()
+        if "-" in part and not part.startswith("-"):
+            lo_s, hi_s = part.split("-", 1)
+            try:
+                lo, hi = int(lo_s.strip()), int(hi_s.strip())
+                result.extend(range(lo, hi + 1))
+            except ValueError:
+                pass
+        else:
+            try:
+                result.append(int(part))
+            except ValueError:
+                pass
+    return [i for i in sorted(set(result)) if 1 <= i <= max_n]
+
+
+def handle_enrich_command(argv: Sequence[str], settings: Settings) -> int:
+    from rich.table import Table
+    from .enrichment import enrich_run
+    from .run_index import resolve_saved_run
+
+    parser = build_enrich_parser()
+    args = parser.parse_args(list(argv))
+    console = Console()
+
+    # Resolve run directory
+    manifest = resolve_saved_run(settings.app.output_dir, args.run_ref)
+    if manifest is None:
+        console.print(f"[bold red]No saved run found for:[/bold red] {args.run_ref}")
+        return 1
+
+    run_dir = Path(str(manifest.get("files", {}).get("run_dir", "") or ""))
+    if not run_dir.exists():
+        console.print(f"[bold red]Run directory not found:[/bold red] {run_dir}")
+        return 1
+
+    merged_path = run_dir / "merged_items.json"
+    if not merged_path.exists():
+        console.print(f"[bold red]No merged_items.json in:[/bold red] {run_dir}")
+        return 1
+
+    import json as _json
+    all_items = _json.loads(merged_path.read_text(encoding="utf-8"))
+    if not all_items:
+        console.print("[yellow]Run has no items to enrich.[/yellow]")
+        return 0
+
+    # Determine selection
+    item_indices: list[int] | None = None
+
+    if args.items:
+        item_indices = _parse_item_selection(args.items, len(all_items))
+        if not item_indices:
+            console.print(f"[red]No valid item numbers in:[/red] {args.items}")
+            return 1
+    elif not args.enrich_all:
+        # Show interactive picker
+        table = Table(title=f"{run_dir.name}  —  {len(all_items)} items", show_lines=False)
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Source", style="cyan", width=10)
+        table.add_column("Score", style="yellow", width=7)
+        table.add_column("Title")
+
+        for i, item in enumerate(all_items, start=1):
+            title = str(item.get("title", "")).strip()[:80] or "(no title)"
+            source = str(item.get("source", ""))
+            score = f"{item.get('score', 0):.1f}"
+            table.add_row(str(i), source, score, title)
+
+        console.print()
+        console.print(table)
+        console.print()
+        console.print("[dim]Tip: enter numbers like  1,3,5  or ranges like  1-5  or type  all[/dim]")
+
+        try:
+            raw = input("Items to enrich [all]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            raw = "all"
+
+        if not raw or raw.lower() == "all":
+            item_indices = None  # all
+        elif raw.lower() in {"q", "quit", "exit"}:
+            console.print("Cancelled.")
+            return 0
+        else:
+            item_indices = _parse_item_selection(raw, len(all_items))
+            if not item_indices:
+                console.print(f"[red]Could not parse selection:[/red] {raw}")
+                return 1
+
+    selected_count = len(item_indices) if item_indices is not None else len(all_items)
+    transcript_note = " + transcripts" if args.transcript else ""
+    console.print(
+        f"\n[bold]Enriching {selected_count} item(s){transcript_note}…[/bold]  "
+        f"[dim](Jina article text{'  •  yt-dlp + Whisper' if args.transcript else ''})[/dim]"
+    )
+
+    try:
+        result = enrich_run(
+            run_dir,
+            item_indices=item_indices,
+            transcript=args.transcript,
+            whisper_model=args.whisper_model,
+            jina_api_key=settings.app.jina_api_key,
+            instagram_session_id=settings.instagram.session_id,
+        )
+    except Exception as exc:
+        console.print(f"[bold red]Enrichment failed:[/bold red] {exc}")
+        return 1
+
+    if args.json:
+        print(_json.dumps(result, indent=2))
+        return 0
+
+    console.print()
+    console.print(Panel.fit(
+        f"Jina-enriched items: {result['enriched']}\n"
+        f"Transcribed items:   {result['transcribed']}\n"
+        f"Total evidence:      {result['total_evidence']}\n"
+        f"Evidence file:       {result['evidence_path']}\n"
+        f"Asset candidates:    {result['asset_candidates_path']}"
+        + (f"\n\n[red]Errors ({len(result['errors'])}):[/red]\n" + "\n".join(result["errors"]) if result["errors"] else ""),
+        title="[bold green]Enrichment complete[/bold green]",
+    ))
+    return 0
+
+
 def handle_generate_command(argv: Sequence[str], settings: Settings) -> int:
     parser = build_generate_parser()
     args = parser.parse_args(list(argv))
@@ -697,6 +829,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if argv_list and argv_list[0] == "generate":
         return handle_generate_command(argv_list[1:], settings)
+
+    if argv_list and argv_list[0] == "enrich":
+        return handle_enrich_command(argv_list[1:], settings)
 
     if argv_list and argv_list[0] == "dashboard":
         import subprocess

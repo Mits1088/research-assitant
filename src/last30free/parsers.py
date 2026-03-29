@@ -162,6 +162,42 @@ def build_watchlist_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_enrich_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="last30free enrich",
+        description=(
+            "Enrich items from a saved run with Jina article text, "
+            "caption URL articles, and optional video transcripts."
+        ),
+    )
+    parser.add_argument("run_ref", help="Run ID, partial topic, or path to run directory")
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        dest="enrich_all",
+        help="Enrich all items without showing the selection prompt",
+    )
+    parser.add_argument(
+        "--items",
+        default=None,
+        help="Item numbers to enrich, e.g. 1,3,5 or 1-5 or 1,3-5,8",
+    )
+    parser.add_argument(
+        "--transcript",
+        action="store_true",
+        help="Download and transcribe video content (TikTok, Instagram, YouTube, X)",
+    )
+    parser.add_argument(
+        "--whisper-model",
+        default="small",
+        dest="whisper_model",
+        choices=["tiny", "base", "small", "medium", "large"],
+        help="Whisper model size for transcription (default: small)",
+    )
+    parser.add_argument("--json", action="store_true", help="Emit JSON result instead of rich terminal output")
+    return parser
+
+
 def build_generate_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="last30free generate",

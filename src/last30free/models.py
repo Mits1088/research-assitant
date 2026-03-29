@@ -85,6 +85,10 @@ class Evidence(BaseModel):
     screenshot_path: str = ""
     enrich_status: str = "ok"
     enrich_error: str | None = None
+    transcript: str = ""               # speech-to-text from video (yt-dlp subs or Whisper)
+    transcript_source: str = ""        # "subtitles" / "whisper" / ""
+    caption_article_url: str = ""      # URL extracted from post caption/description
+    caption_article_markdown: str = "" # Jina markdown of that linked article
 
 
 class AssetCandidate(BaseModel):
