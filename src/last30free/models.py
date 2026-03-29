@@ -22,6 +22,7 @@ class SourceName(str, Enum):
     X = "x"
     INSTAGRAM = "instagram"
     TIKTOK = "tiktok"
+    FACEBOOK = "facebook"
 
 
 class IntentParse(BaseModel):

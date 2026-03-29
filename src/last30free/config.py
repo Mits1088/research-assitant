@@ -91,6 +91,23 @@ class TikTokSettings(BaseModel):
     enable: bool = True
 
 
+class FacebookSettings(BaseModel):
+    search_limit: int = 20
+    enable: bool = True
+    c_user: str = ""  # Set FACEBOOK_C_USER to enable (get from browser DevTools → Cookies → facebook.com → c_user)
+    xs: str = ""      # Set FACEBOOK_XS (browser DevTools → Cookies → facebook.com → xs)
+    datr: str = ""    # Optional — FACEBOOK_DATR. Warning: ties scraping to your real browser; if flagged may affect your normal account session
+    sb: str = ""      # Optional — FACEBOOK_SB. Same warning as datr — avoid if using the same account/browser normally
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.c_user.strip() and self.xs.strip())
+
+    @property
+    def active(self) -> bool:
+        return self.enable and self.configured
+
+
 class Settings(BaseModel):
     app: AppSettings
     reddit: RedditSettings
@@ -99,6 +116,7 @@ class Settings(BaseModel):
     x: XSettings
     instagram: InstagramSettings
     tiktok: TikTokSettings
+    facebook: FacebookSettings
 
     def ensure_directories(self) -> None:
         self.app.ensure_directories()
@@ -145,6 +163,14 @@ def load_settings() -> Settings:
         tiktok=TikTokSettings(
             search_limit=_get_int("TIKTOK_SEARCH_LIMIT", 20),
             enable=_get_bool("TIKTOK_ENABLE", True),
+        ),
+        facebook=FacebookSettings(
+            search_limit=_get_int("FACEBOOK_SEARCH_LIMIT", 20),
+            enable=_get_bool("FACEBOOK_ENABLE", True),
+            c_user=os.getenv("FACEBOOK_C_USER", ""),
+            xs=os.getenv("FACEBOOK_XS", ""),
+            datr=os.getenv("FACEBOOK_DATR", ""),
+            sb=os.getenv("FACEBOOK_SB", ""),
         ),
     )
     return settings

@@ -12,7 +12,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
-from .adapters import AdapterError, HNAdapter, InstagramAdapter, RedditAdapter, TikTokAdapter, XAdapter, YouTubeAdapter
+from .adapters import AdapterError, FacebookAdapter, HNAdapter, InstagramAdapter, RedditAdapter, TikTokAdapter, XAdapter, YouTubeAdapter
 from .alerts import build_alert_report_from_manifests
 from .comparison import compare_payloads, load_payload_from_manifest, render_comparison_markdown
 from .config import Settings, load_settings
@@ -60,7 +60,7 @@ PROMPTING_HINTS = (
     "thumbnails",
 )
 
-IMPLEMENTED_SOURCES = {"reddit", "hn", "youtube", "x", "instagram", "tiktok"}
+IMPLEMENTED_SOURCES = {"reddit", "hn", "youtube", "x", "instagram", "tiktok", "facebook"}
 
 
 def normalize_spaces(text: str) -> str:
@@ -162,8 +162,17 @@ def extract_topic_and_tool(
     return clean_topic_text(raw_query, query_type), "unknown"
 
 
-def parse_user_intent(raw_query: str, tool_override: str | None = None) -> IntentParse:
+def parse_user_intent(raw_query: str, tool_override: str | None = None, literal: bool = False) -> IntentParse:
     query = normalize_spaces(raw_query)
+
+    if literal:
+        return IntentParse(
+            raw_query=query,
+            topic=query,
+            target_tool=normalize_spaces(tool_override) if tool_override else "unknown",
+            query_type=QueryType.GENERAL,
+        )
+
     query_type = detect_query_type(query)
 
     if query_type == QueryType.COMPARISON:
@@ -200,9 +209,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--source",
         action="append",
-        choices=["reddit", "hn", "youtube", "x", "instagram", "tiktok"],
+        choices=["reddit", "hn", "youtube", "x", "instagram", "tiktok", "facebook"],
         help="Limit runtime to one or more sources; can be passed multiple times",
     )
+    parser.add_argument("--literal", action="store_true", help="Pass the query verbatim to all sources — skip intent parsing and topic cleaning")
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of rich terminal output")
     parser.add_argument("--save", action="store_true", help="Write report and run artifacts to the output directory")
     parser.add_argument("--results", type=int, default=0, help="Number of merged results to display (default: 0 = all)")
@@ -340,6 +350,8 @@ def resolve_sources(settings: Settings, requested_sources: list[str] | None) -> 
         available.append("instagram")
     if settings.tiktok.enable:
         available.append("tiktok")
+    if settings.facebook.enable and settings.facebook.configured:
+        available.append("facebook")
 
     if not requested_sources:
         return available, []
@@ -377,6 +389,8 @@ def summarize_item_signal(item: dict[str, Any]) -> str:
         return f"{metrics['likes']} likes / {metrics['comments']} cmt"
     if source == "tiktok":
         return f"{metrics['views']} views / {metrics['likes']} likes / {metrics['reposts']} shares"
+    if source == "facebook":
+        return f"{metrics['likes']} likes / {metrics['comments']} cmt / {metrics['reposts']} shares"
     return "-"
 
 
@@ -419,6 +433,10 @@ def summarize_item_community(item: dict[str, Any]) -> str:
     if item["source"] == "tiktok":
         username = str(item.get("raw", {}).get("username", "") or "").strip()
         return f"@{username}" if username else "TikTok"
+
+    if item["source"] == "facebook":
+        author = str(item.get("raw", {}).get("author", "") or "").strip()
+        return author if author else "Facebook"
 
     return item["source"]
 
@@ -604,6 +622,46 @@ def run_tiktok(settings: Settings, topic: str, *, days: int, limit: int) -> tupl
         adapter.close()
 
 
+def run_facebook(settings: Settings, topic: str, *, days: int, limit: int) -> tuple[dict[str, Any], list[ResearchItem]]:
+    if not settings.facebook.configured:
+        return (
+            {
+                "status": "not_configured",
+                "count": 0,
+                "items": [],
+                "error": (
+                    "Set FACEBOOK_C_USER and FACEBOOK_XS env vars to enable "
+                    "(get them from browser DevTools → Application → Cookies → facebook.com)"
+                ),
+            },
+            [],
+        )
+    adapter = FacebookAdapter(settings)
+    try:
+        items = adapter.search(topic, days=days, limit=limit)
+        return (
+            {
+                "status": "ok",
+                "count": len(items),
+                "items": serialize_items(items),
+                "error": None,
+            },
+            items,
+        )
+    except AdapterError as exc:
+        return (
+            {
+                "status": "error",
+                "count": 0,
+                "items": [],
+                "error": str(exc),
+            },
+            [],
+        )
+    finally:
+        adapter.close()
+
+
 def build_payload_for_query(
     *,
     raw_query: str,
@@ -615,8 +673,9 @@ def build_payload_for_query(
     per_source_limit: int | None = None,
     quick: bool = False,
     deep: bool = False,
+    literal: bool = False,
 ) -> dict[str, Any]:
-    intent = parse_user_intent(raw_query, tool_override=tool)
+    intent = parse_user_intent(raw_query, tool_override=tool, literal=literal)
     selected_sources, skipped_sources = resolve_sources(settings, sources)
 
     if deep:
@@ -636,6 +695,7 @@ def build_payload_for_query(
         settings.x.search_limit = per_source_limit
         settings.instagram.search_limit = per_source_limit
         settings.tiktok.search_limit = per_source_limit
+        settings.facebook.search_limit = per_source_limit
     implemented_selected = [source for source in selected_sources if source in IMPLEMENTED_SOURCES]
 
     results: dict[str, Any] = {
@@ -645,6 +705,7 @@ def build_payload_for_query(
         "x": init_result(),
         "instagram": init_result(),
         "tiktok": init_result(),
+        "facebook": init_result(),
     }
 
     merged_items: list[ResearchItem] = []
@@ -709,6 +770,16 @@ def build_payload_for_query(
         results["tiktok"] = tiktok_result
         merged_items.extend(tiktok_items)
 
+    if "facebook" in implemented_selected:
+        facebook_result, facebook_items = run_facebook(
+            settings,
+            intent.topic,
+            days=runtime_days,
+            limit=runtime_limit,
+        )
+        results["facebook"] = facebook_result
+        merged_items.extend(facebook_items)
+
     if filters:
         keywords = [kw.lower() for kw in filters]
         merged_items = [
@@ -730,7 +801,7 @@ def build_payload_for_query(
 
     return {
         "status": status,
-        "message": "Reddit, HN, YouTube, X, Instagram, and TikTok live fetch are implemented, with first-pass synthesis.",
+        "message": "Reddit, HN, YouTube, X, Instagram, TikTok, and Facebook live fetch are implemented, with first-pass synthesis.",
         "intent": intent.model_dump(mode="json"),
         "runtime": {
             "days": runtime_days,
@@ -768,6 +839,7 @@ def build_payload(args: argparse.Namespace, settings: Settings) -> dict[str, Any
         per_source_limit=args.per_source_limit,
         quick=args.quick,
         deep=args.deep,
+        literal=getattr(args, "literal", False),
     )
 
 
@@ -879,7 +951,7 @@ def render_pretty(payload: dict[str, Any], *, results_limit: int = 0) -> None:
     source_table.add_column("Count", justify="right")
     source_table.add_column("Error")
 
-    for source_name in ("reddit", "hn", "youtube", "x", "instagram", "tiktok"):
+    for source_name in ("reddit", "hn", "youtube", "x", "instagram", "tiktok", "facebook"):
         result = payload["results"].get(source_name)
         if result is None:
             continue
@@ -982,6 +1054,18 @@ def render_pretty(payload: dict[str, Any], *, results_limit: int = 0) -> None:
         )
 
     console.print(merged_table)
+
+    # Print full URLs in plain text so they are never truncated by the table renderer
+    urls_with_index = [
+        (i, item.get("url", ""))
+        for i, item in enumerate(items if results_limit == 0 else items[:results_limit], start=1)
+        if item.get("url")
+    ]
+    if urls_with_index:
+        console.print()
+        console.print("[bold]Full URLs[/bold]")
+        for idx, url in urls_with_index:
+            console.print(f"  {idx:>3}. {url}")
 
     top_with_quote = next((item for item in items if item.get("quotes")), None)
     if top_with_quote:
